@@ -1,4 +1,4 @@
-# Rebuilding-DL - Chapter 1 : 1 Neuron/activation
+# Rebuilding-DL - Chapter 2 : First network
 
 
 
@@ -6,66 +6,42 @@
 
 ## Goal 
 
-Imagine our goal is to predict if a mushroom is toxic. But what is a "mushroom" ? 
-
-We can encode it as an element having :
-- n features X1...Xn (numbers, for example length in mm, red, green, blue proportion in %, etc...)
-- a toxicity label y. 1 if toxic, 0 if not.
-
-The goal of the neuron is to be able to read the features and tell us if it is toxic or not.
+In the chapter 1, We've been able to separate a dataset which could be separated with a straight line. Now, what happens if the toxic ones were in a circle at the middle of our plot ? 
 
 
 
+![dataplot](README_figures/plot.png) 
 
 
 ## Logic
 
-Imagine we have 1000 mushrooms examples in a dataset.
-When we plot each one on a graphic length/red proportion, it seems that we could separate them with a straight line.
+We will assemble neurons in different size layers.
+- Adding more neurons per layer let us draw borders with more faces
+- Adding more layers let us assemble and fold these simple shapes to create non linear functions. 
 
-This line is  our neuron. A linear function such as : Z = sum( i=[1...n] | Xi*Wi) + b. 
-
-The goal is to find the Wi and the b to make our linear function separate properly the toxic ones and the non toxic ones. 
-
-![dataplot](README_figures/img1.png) 
-
-How to convert our float output to a 2 choices output (toxic/non toxic) ? We will use an Activation function.
-
-For what we want to do, the most common one is the sigmoid function. It takes a number, and send a toxicity probability between 0% and 100%.
-
-We juste have to say that more than 50% is toxic, non toxic else.
-
-![sigmoid](README_figures/img2.png)
+## How to implement it ?
 
 
+### Implementing the weights W and biasis b
 
+For a ```L``` layer with ```N``` neurons, and ```E``` entries (number of neurons from the precedent layer or number of features if ```L``` is the first layer), ```W[L]``` is a 2D matrix, with ```E``` lines and ```N``` columns. ```b[L]``` is an array of ```N``` elements. 
 
+### Prediction
+Each ```L``` layer calculates  ```X[L] = A[L-1]*W[L]+b[L]``` and sends the result to its activation function, which calculates ```A[L]```, the entries of ```L+1```. 
 
-## How to make our neuron truthful ?
+### Training
+Each ```L``` layer gets a ```dZ[L+1]``` (the error calculated by the next layer, multiplied by the derivative of ```L```'s activation function). It calculates the local gradient ```dZ[L] = dZ[L+1]*d_activation[L](Z)```.
 
-We will train it. Here is the logic. We will repeat 20000 times :
+With ```A[L-1]``` (the output of the precedent layer's activation), it calculates ```dW[L] = (1/m) * A[L-1] * dZ[L]``` and ```db[L] = (1/m) * sum(dZ[L])```. 
 
-- We give our 1000 mushrooms [X1...Xn] to the neuron. It will predict for each one a wrong toxicity y_pred.
-- We compare to the true toxicities y of each one. We calculate each one's error with a loss function. We sum these errors.
-- We give it back to our neuron as a feedback. It will say : "Okay. the last time, I moved the Wi weights from this value to this value. So, the error has moved from this to that.". It will let the neuron know how many it needs to move again the Wi weights to lower the error. The neuron does that for each W1...Wn and b biasis. 
+It updates its weights with a ```lr``` learning rate : ```W[L] = W[L] - lr*dW[L]``` and ```b[L] = b[L] - lr*db[L]```.
 
-Our line will move with little steps, until the error cannot be more reduced. This is the spot our line will be properly able to tell us if a new mushroom is toxic. 
+Finally, it sends ```dZ[L]``` to the ```L-1``` layer.
 
+In practice, mathematically, the ```dZ[L] = dZ[L+1]*d_activation[L](Z)``` of the last layer with its sigmoid activation simplifies into  ```dZ[L] = A[L] - y```, which has been implemented here.
 
+We also notice the ```weight``` parameter, which is useful in making non detection of the C class more heavier than non detecting the others. This is useful when the C class is under represented in the training dataset.
 
+## Playing with the architecture
 
-
-## Important points
-
-### Normalization
-
-In our dataset, we can have some very big features (ex : a 15 mm mushroom) and very little ones (ex : a 0.5 red proportion). During training, if the algorithm decides that we need to adjust the W weights in an equitable way, the 15mm effect will erase the 0.5's one. It is too big. 
-
-We need to make them all the same scale, as they cannot erase the others anymore. 
-
-We will : 
-- calculate the Xi_mean for each features in our dataset,
-- calculate the Xi_standard_deviation for each feature,
-- remove the mean and divide the result by the std to each Xi value.
-
-
+This code has been written to be able to modsify easily the number of layers, and the number of neurons per layer. We can play with that, with the ```lr``` learning rate, the ```weight```, the number of training iterations ```n_iter```, to try to optimize our model according to our case, or simply to look at effects on the shape of the separation.
