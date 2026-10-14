@@ -1,4 +1,5 @@
-# Rebuilding-DL - Chapter 2 : First network
+# Rebuilding-DL - Chapter 3 : First "Image" Generator (GAN)
+
 
 
 
@@ -6,42 +7,44 @@
 
 ## Goal 
 
-In the chapter 1, We've been able to separate a dataset which could be separated with a straight line. Now, what happens if the toxic ones were in a circle at the middle of our plot ? 
+Normally, a GAN uses convolutionnal networks (We will see that in the next chapters...), and train itself with / generates pictures (1920x1080 values between 0 and 255. 3 times for each red, green, blue proportion). If I try to train this on my computer, it explodes.
+
+I just want to understand how it works. So, I'll simplify the goal. Instead of generating 3x1920x1080 numbers to look like manga drawings, I will train only 2 coordinates to look like a circle. 
 
 
 
-![dataplot](README_figures/plot.png) 
+![dataplot](README_figures/20000%20epochs%20-%20500%20batchsize%20-%200,01%20lr.png) 
+
+
+
 
 
 ## Logic
 
-We will assemble neurons in different size layers.
-- Adding more neurons per layer let us draw borders with more faces
-- Adding more layers let us assemble and fold these simple shapes to create non linear functions. 
+Let's consider 2 neural networks : 
+- ```D```, the discriminator, gets 2 coordinates and must predict if the given point belongs to the circle. It is a classical classification network.
+- ```G```, the generator, takes 2 noises and gives 2 coordinates.
+
+The goal is to train ```G``` to trick ```D``` by making it predict its generated coordinates as belonging to the circle.
+
+The two will train in parallel. ```G``` must learn to trick ```D``` and ```D``` must learn to not be tricked by ```G```
+
+
+
+
 
 ## How to implement it ?
 
+### Training loop
+- First, we train ```D```.
+  - We compose a data batch, with few points from the true circle, labelled ```1```, and we generate a bunch of points with ```G```, labelled ```0```. 
+  - we predict some label with ```D```, and apply the classical back propagation.
+- Second, we train ```G```. 
+  - We generate false data with ```G```, but wse label them ```1```. 
+  - When we give them to ```D```, it can predict : 
+    - ```1``` : ```D``` has been tricked. ```G``` had sucess in tricking it. 
+    - ```0``` : ```D``` has not been tricked. the loss will be big here, and the back propagation on ```G``` will affect highly the coefficients.
 
-### Implementing the weights W and biasis b
+### Visualisation
 
-For a ```L``` layer with ```N``` neurons, and ```E``` entries (number of neurons from the precedent layer or number of features if ```L``` is the first layer), ```W[L]``` is a 2D matrix, with ```E``` lines and ```N``` columns. ```b[L]``` is an array of ```N``` elements. 
-
-### Prediction
-Each ```L``` layer calculates  ```X[L] = A[L-1]*W[L]+b[L]``` and sends the result to its activation function, which calculates ```A[L]```, the entries of ```L+1```. 
-
-### Training
-Each ```L``` layer gets a ```dZ[L+1]``` (the error calculated by the next layer, multiplied by the derivative of ```L```'s activation function). It calculates the local gradient ```dZ[L] = dZ[L+1]*d_activation[L](Z)```.
-
-With ```A[L-1]``` (the output of the precedent layer's activation), it calculates ```dW[L] = (1/m) * A[L-1] * dZ[L]``` and ```db[L] = (1/m) * sum(dZ[L])```. 
-
-It updates its weights with a ```lr``` learning rate : ```W[L] = W[L] - lr*dW[L]``` and ```b[L] = b[L] - lr*db[L]```.
-
-Finally, it sends ```dZ[L]``` to the ```L-1``` layer.
-
-In practice, mathematically, the ```dZ[L] = dZ[L+1]*d_activation[L](Z)``` of the last layer with its sigmoid activation simplifies into  ```dZ[L] = A[L] - y```, which has been implemented here.
-
-We also notice the ```weight``` parameter, which is useful in making non detection of the C class more heavier than non detecting the others. This is useful when the C class is under represented in the training dataset.
-
-## Playing with the architecture
-
-This code has been written to be able to modsify easily the number of layers, and the number of neurons per layer. We can play with that, with the ```lr``` learning rate, the ```weight```, the number of training iterations ```n_iter```, to try to optimize our model according to our case, or simply to look at effects on the shape of the separation.
+In this code, we implemented visualisation of the progress of the training of ```G```. For some key epoch numbers, we plot a bunch of points it generated to compare the alignment with the true circle. This is the picture you can see at the top of this readme file. 

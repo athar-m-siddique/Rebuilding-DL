@@ -1,276 +1,222 @@
-# ======================================================================
-# IMPORTS ==============================================================
-# ======================================================================
-
 import numpy as np
 import json
 import matplotlib.pyplot as plt
+import os
+import math
+import copy
 
-
-
-
-
-# ======================================================================
-# PREPARING DATA========================================================
-# ======================================================================
-
-def import_data(mode="train"):
-
-    filename = "batches/" + mode + "_data.json"
-    points = []
-    X = np.array([])
-    with open(filename, 'r') as file:
-        points.extend(json.load(file))
-    points=np.array(points)
-
-    X = points[:,:-1]
-    y = points[:,-1].reshape(-1,1)
-
-    return X,y
-
-
-
-def normalize(X, mean=None, std=None):
-    if mean is None or std is None:
-        mean = np.mean(X, axis=0)
-        std = np.std(X, axis=0)
-    X = (X - mean) / std
-    return X, mean, std
-
-
-
-def plot_contour_2d(X, y, W, b, resolution=200):
+def load_data(filename="batches/train_data.json"):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filepath = os.path.join(script_dir, filename)
     
-    x1_min, x1_max = X[:, 0].min() - 0.2, X[:, 0].max() + 0.2
-    x2_min, x2_max = X[:, 1].min() - 0.2, X[:, 1].max() + 0.2
+    with open(filepath, "r") as f:
+        data = json.load(f)
     
-    grid_x1, grid_x2 = np.meshgrid(
-        np.linspace(x1_min, x1_max, resolution),
-        np.linspace(x2_min, x2_max, resolution)
-    )
+    X = np.array(data, dtype=np.float32)[:,:2]
     
-    grid_data = np.c_[grid_x1.ravel(), grid_x2.ravel()]
-
-    _, A_grid = model(grid_data, W, b)
-    grid_probs = A_grid[-1].reshape(resolution, resolution)
-
-    plt.figure(figsize=(8, 6))
+    y = np.array(data, dtype=np.float32)[:,2].reshape(-1,1)
     
-    y_flat = y.ravel()
-    plt.scatter(X[y_flat == 0, 0], X[y_flat == 0, 1], c='blue', alpha=0.5, label='Classe 0')
-    plt.scatter(X[y_flat == 1, 0], X[y_flat == 1, 1], c='red', alpha=0.8, label='Classe 1')
-    
-    plt.contour(grid_x1, grid_x2, grid_probs, levels=[0.5], colors='#00FF00', linewidths=2.5)
-    
-    plt.xlabel('X1')
-    plt.ylabel('X2')
-    plt.legend()
-    plt.show()
+    return X, y
 
 
-
-
-
-# ======================================================================
-# ALGORITHM ============================================================
-# ======================================================================
-
-
-
-def initialisation(X, layers):
-
-    l = layers.copy()
-    l.insert(0, X.shape[1])
-
+def init(c):
     W = []
     b = []
 
-    for i in range(1, len(l)):
-        W.append(np.random.randn(l[i-1], l[i]) * np.sqrt(2.0 / l[i-1]))
-        b.append(np.zeros((1, l[i])))
-    
-    return W, b
+    for i in range(1, len(c)):
+        W.append(np.random.randn(c[i-1], c[i])*np.sqrt(2.0/c[i-1]))
+        b.append(np.zeros((1,c[i])))
 
-
-
-def reLU(Z):
-    return np.maximum(0,Z)
+    return W,b
 
 def sigmoid(Z):
     return 1/(1+np.exp(-Z))
 
-def dreLU(Z):
-    return (Z > 0).astype(float)
+def leaky_relu(Z, alpha=0.2):
+    return np.where(Z > 0, Z, Z * alpha)
 
-def dsigmoid(Z):
-    s = sigmoid(Z)
-    return s*(1-s)
+def dleaky_relu(Z, alpha=0.2):
+    return np.where(Z > 0, 1.0, alpha)
 
-
-
-def log_loss(A,y):
-    m = len(y)
-    eps = 1e-15
-    A = np.clip(A[-1], eps, 1-eps)
-    return (-1/m)*np.sum(y*np.log(A)+(1-y)*np.log(1-A))
-
-def dlog_loss(A,y):
-    m = len(y)
-    eps = 1e-15
-    A = np.clip(A[-1], eps, 1-eps)
-    return (-1/m)*np.sum((y/A) * ((y-1)/(1-A)))
-
-
-
-def model(X,W,b):
+def modelG(X,W,b):
 
     Z = []
     A = [X]
 
     for i in range(len(W)):
         Z.append(A[i].dot(W[i])+b[i])
-        A.append(sigmoid(Z[i]) if i==len(W)-1 else reLU(Z[i]))
+        A.append(Z[i] if i == len(W)-1 else leaky_relu(Z[i]))
 
     A.pop(0)
 
-    return Z, A
+    return Z,A
+
+def modelD(X,W,b):
+
+    Z = []
+    A = [X]
+
+    for i in range(len(W)):
+        Z.append(A[i].dot(W[i])+b[i])
+        A.append(sigmoid(Z[i]) if i == len(W)-1 else leaky_relu(Z[i]))
+
+    A.pop(0)
+
+    return Z,A
+
+def log_loss(A,y):
+    m = len(y)
+    eps = 1e-15
+    A = np.clip(A[-1],eps,1-eps)
+    return (-1/m)*np.sum(y*np.log(A) + (1-y)*np.log(1-A))
 
 
-
-def back_propagation (A, X, y, Z, W, weight):
+def back_propagationD(A,X,y,Z,W):
 
     m = len(y)
     L = len(A)
+    dW, db = [None] * L, [None] * L
 
-    dW = [None]*L
-    db = [None]*L
-
-    dA = None
-    dZ=0
+    dZ = (A[-1] - y) / m
 
     for i in reversed(range(L)):
+        A_prev = A[i-1] if i > 0 else X
+        dW[i] = np.dot(A_prev.T, dZ)
+        db[i] = np.sum(dZ, axis=0, keepdims=True)
 
-        dZ = A[i]-y if i==L-1 else dA*dreLU(Z[i])
-        if i==L-1:
-            dZ[y==1]*=weight
-            
-        A_prev=A[i-1] if i>0 else X
+        if i > 0:
+            dA = np.dot(dZ, W[i].T)
+            dZ = dA * dleaky_relu(Z[i-1])
 
-        dW[i] = (1/m)*np.dot(A_prev.T, dZ)
-        db[i] = (1/m)*np.sum(dZ, axis=0, keepdims=True)
+    dX = np.dot(dZ, W[0].T)
+    return dW, db, dX
 
-        dA = np.dot(dZ, W[i].T)
+def back_propagationG(AG, z, dX_fake, ZG, WG):
+    L = len(AG)
+    dW, db = [None] * L, [None] * L
+
+    dZ = dX_fake
+
+
+    for i in reversed(range(L)):
+        A_prev = AG[i-1] if i > 0 else z
+        dW[i] = np.dot(A_prev.T, dZ)
+        db[i] = np.sum(dZ, axis=0, keepdims=True)
+
+        if i > 0:
+            dA = np.dot(dZ, WG[i].T)
+            dZ = dA * dleaky_relu(ZG[i-1])
 
     return dW, db
 
-
-
 def update(W,b,dW,db,lr):
     for i in range(len(W)):
-        W[i] -= lr*dW[i]
-        b[i] -= lr*db[i]
+        W[i]-=lr*dW[i]
+        b[i]-=lr*db[i]
     return W,b
 
 
+def train_network(
+    X_true, y_true, couchesG, couchesD, epochs_to_save, lr, weight, batchsize
+):
+    WG, bG = init(couchesG)
+    WD, bD = init(couchesD)
 
-def train_network (X, y, layers, n_iter, lr, weight):
-    loss = []
-    W,b = initialisation(X,layers)
-    for n in range(n_iter):
-        Z,A = model(X,W,b)
-        loss.append(log_loss(A,y))
-        dW,db = back_propagation(A,X,y,Z,W, weight)
-        update(W,b,dW,db,lr)
+    lossG = []
+    lossD = []
 
-    return W,b,loss
+    history_G = {}
 
+    epochs_to_save = sorted(list(set(epochs_to_save)))
+    max_epochs = max(epochs_to_save)
 
+    for i in range(1, max_epochs + 1):
+        half_batch = batchsize // 2
 
+        # train D
+        idx = np.random.randint(0, X_true.shape[0], half_batch)
+        X_real = X_true[idx]
+        y_real = y_true[idx]
 
+        z = np.random.randn(half_batch, couchesG[0])
+        _, AG = modelG(z, WG, bG)
+        X_fake = AG[-1]
+        y_fake = np.zeros((half_batch, 1))
 
-# ======================================================================
-# MAIN =================================================================
-# ======================================================================
+        X = np.vstack((X_real, X_fake))
+        y = np.vstack((y_real, y_fake))
+
+        ZD, AD = modelD(X, WD, bD)
+        lossD.append(log_loss(AD, y))
+        dWD, dbD, _ = back_propagationD(AD, X, y, ZD, WD)
+        WD, bD = update(WD, bD, dWD, dbD, lr)
+
+        # train G
+        z = np.random.randn(half_batch, couchesG[0])
+        ZG, AG = modelG(z, WG, bG)
+        X_fake = AG[-1]
+
+        y_trick = np.ones((half_batch, 1))
+        ZD, AD = modelD(X_fake, WD, bD)
+        lossG.append(log_loss(AD, y_trick))
+
+        _, _, dX_fake = back_propagationD(AD, X_fake, y_trick, ZD, WD)
+        dWG, dbG = back_propagationG(AG, z, dX_fake, ZG, WG)
+        WG, bG = update(WG, bG, dWG, dbG, lr)
+
+        if i in epochs_to_save:
+            history_G[i] = (copy.deepcopy(WG), copy.deepcopy(bG))
+
+    return history_G, lossG, lossD
+
 
 if __name__ == "__main__":
+    couchesG = [2, 16, 16, 2]
+    couchesD = [2, 16, 8, 1]
 
+    X_true, y_true = load_data()
 
-    # exploring different architectures
-    l1 = [1]
-    l2 = [1, 1, 1, 1, 1]
-    l3 = [4, 1]
-    l4 = [8, 4, 1]
-    l5 = [8, 4, 2, 1]
-    l6 = [32, 8, 2, 1]
-    l7 = [32, 16, 8, 1]
-    l8 = [8, 16, 32, 16, 8, 1]
-    l9 = [512, 128, 32, 8, 1]
+    epochs_to_save = [1000, 5000, 8000, 10000, 15000, 20000]
 
-    l10= [7, 1]
+    print(f"Entraînement en une passe jusqu'à {max(epochs_to_save)} epochs...")
+    history_G, lossG, lossD = train_network(
+        X_true,
+        y_true,
+        couchesG,
+        couchesD,
+        epochs_to_save=epochs_to_save,
+        lr=0.01,
+        weight=2,
+        batchsize=500,
+    )
 
-    layers=l10
+    num_tests = len(epochs_to_save)
+    cols = 3
+    rows = math.ceil(num_tests / cols)
 
-    #import data & normalize X
-    X,y = import_data("train")
-    X, mean, std = normalize(X)
-    print(X.shape, y.shape)
+    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
+    axes_flat = axes.ravel() if num_tests > 1 else [axes]
 
+    z_test = np.random.randn(500, couchesG[0])
 
+    for idx, ep in enumerate(epochs_to_save):
+        WG_saved, bG_saved = history_G[ep]
+        _, A_test = modelG(z_test, WG_saved, bG_saved)
+        coord = A_test[-1]
 
-    # initialization neuron network
-    W,b = initialisation(X, layers)
-    for i in range(len(W)):
-        print(f"W{i+1} shape: {W[i].shape}")
-        print(f"b{i+1} shape: {b[i].shape}")
+        ax = axes_flat[idx]
+        ax.scatter(
+            X_true[:, 0], X_true[:, 1], alpha=0.2, color="blue", label="Réelles"
+        )
+        ax.scatter(
+            coord[:, 0], coord[:, 1], color="red", alpha=0.7, label="Générées"
+        )
+        ax.axis("equal")
+        ax.set_title(f"Epoch : {ep}")
+        ax.legend()
 
-    #testing model
-    Z, A = model(X,W,b)
-    for i in range(len(A)):
-            print(f"A{i+1} shape: {A[i].shape}")
+    for j in range(num_tests, len(axes_flat)):
+        fig.delaxes(axes_flat[j])
 
-    #testing backpropag
-    dW, db = back_propagation(A,X,y,Z,W, weight=1.0)
-    for i in range(len(dW)):
-        print(f"dW{i+1} shape: {dW[i].shape}")
-        print(f"db{i+1} shape: {db[i].shape}")
-
-    #testing training
-    W,b,loss = train_network(X,y, layers, n_iter=1500, lr=0.03, weight=3.0)
-
-    plt.plot(loss)
-
-
-    #ploting
-    plot_contour_2d(X, y, W, b)
-
-    # Evaluating performances on test dataset
-    X_test, y_test = import_data("test")
-    X_test, _,_ = normalize(X_test, mean, std)
-
-    Z_test, A_test = model(X_test, W, b)
-    y_pred = (A_test[-1] >= 0.5 ).astype(int)
-
-    # calculating confusion matrix and metrics
-    TP = np.sum((y_pred == 1) & (y_test == 1))
-    TN = np.sum((y_pred == 0) & (y_test == 0))
-    FP = np.sum((y_pred == 1) & (y_test == 0))
-    FN = np.sum((y_pred == 0) & (y_test == 1))
-
-    total = len(y_test)
-    accuracy = (TP + TN) / total
-    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-
-    print("\n--- CONFUSION MATRIX ---")
-    print(f"(TP) : {TP}")
-    print(f"(TN) : {TN}")
-    print(f"(FP) : {FP}")
-    print(f"(FN) : {FN}")
-    print("----------------------------")
-    print(f"(Accuracy) : {accuracy * 100:.2f}%")
-    print(f"(Precision): {precision * 100:.2f}%")
-    print(f"(Recall)   : {recall * 100:.2f}%")
-    print("----------------------------")
-    print(f"(F1-Score) : {(2 * precision * recall) / (precision + recall) * 100:.2f}%")
-
-
+    plt.tight_layout()
+    plt.show()
