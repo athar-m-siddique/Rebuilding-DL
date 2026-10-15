@@ -1,4 +1,4 @@
-# Rebuilding-DL - Chapter 3 : First "Image" Generator (GAN)
+# Rebuilding-DL - Chapter 4 : Object based Network
 
 
 
@@ -7,13 +7,9 @@
 
 ## Goal 
 
-Normally, a GAN uses convolutionnal networks (We will see that in the next chapters...), and train itself with / generates pictures (1920x1080 values between 0 and 255. 3 times for each red, green, blue proportion). If I try to train this on my computer, it explodes.
+Since now, we assumed, for ease, few hypothesis that will not be true all time. For instance, assuming that the last layer activation function is always a sigmoid, which makes possible to simplify the back propagation mathematical formula for last layer into ```y_pred-y``` in practical. Nonetheless, if we want to change the architecture, we will need to do all calculation by hand again. Or... implement a modular architecture. This is why Pytorch and TensorFlow decided to implement it in OOP. And we will do the same. 
 
-I just want to understand how it works. So, I'll simplify the goal. Instead of generating 3x1920x1080 numbers to look like manga drawings, I will train only 2 coordinates to look like a circle. 
-
-
-
-![dataplot](README_figures/20000%20epochs%20-%20500%20batchsize%20-%200,01%20lr.png) 
+![dataplot](README_figures/contour.png) 
 
 
 
@@ -21,30 +17,26 @@ I just want to understand how it works. So, I'll simplify the goal. Instead of g
 
 ## Logic
 
-Let's consider 2 neural networks : 
-- ```D```, the discriminator, gets 2 coordinates and must predict if the given point belongs to the circle. It is a classical classification network.
-- ```G```, the generator, takes 2 noises and gives 2 coordinates.
+Each layer is now an independant object.
+During a prediction, each neuron layer will keep in memory what it got in input, and what it sent in output.
+During a back propagation, it will use this data to calculate its own coefficients derivates from the ```dA``` given by its following activation, update its ```W``` and ```b```, and transmit a ```dZ``` to the before's layer.
 
-The goal is to train ```G``` to trick ```D``` by making it predict its generated coordinates as belonging to the circle.
+## Results : 
 
-The two will train in parallel. ```G``` must learn to trick ```D``` and ```D``` must learn to not be tricked by ```G```
+We got this : 
 
+![dataplot](README_figures/loss.png)
 
+```
+--- CONFUSION MATRIX ---
+(TP) : 714
+(TN) : 3518
+(FP) : 450
+(FN) : 318
+----------------------------
+(Accuracy) : 84.64%
+(Precision)        : 61.34%
+(Recall)              : 69.19%
+```
 
-
-
-## How to implement it ?
-
-### Training loop
-- First, we train ```D```.
-  - We compose a data batch, with few points from the true circle, labelled ```1```, and we generate a bunch of points with ```G```, labelled ```0```. 
-  - we predict some label with ```D```, and apply the classical back propagation.
-- Second, we train ```G```. 
-  - We generate false data with ```G```, but wse label them ```1```. 
-  - When we give them to ```D```, it can predict : 
-    - ```1``` : ```D``` has been tricked. ```G``` had sucess in tricking it. 
-    - ```0``` : ```D``` has not been tricked. the loss will be big here, and the back propagation on ```G``` will affect highly the coefficients.
-
-### Visualisation
-
-In this code, we implemented visualisation of the progress of the training of ```G```. For some key epoch numbers, we plot a bunch of points it generated to compare the alignment with the true circle. This is the picture you can see at the top of this readme file. 
+These are the same results, for a same architecture, training dataset, and epochs numbers as the chapter 2's network, than it. We can validate the objectification of the neuronal network. 
