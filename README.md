@@ -40,3 +40,5 @@ We got this :
 ```
 
 These are the same results, for a same architecture, training dataset, and epochs numbers as the chapter 2's network, than it. We can validate the objectification of the neuronal network. 
+
+For validation, a pytorch based algorithm had been also written as ```test_pytorch.py```. 
